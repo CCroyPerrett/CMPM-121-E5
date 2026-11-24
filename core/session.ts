@@ -12,17 +12,19 @@ import {
 export type Command =
   | { readonly kind: "move"; readonly direction: Direction }
   | { readonly kind: "restart" }
-  | { readonly kind: "choose-level"; readonly level: number };
+  | { readonly kind: "choose-level"; readonly level: number }
+  | { kind: "undo" };
 
 export interface SessionState {
   /** Index into LEVELS. */
   readonly level: number;
   readonly puzzle: Puzzle;
+  readonly past: Puzzle[];
 }
 
-export function startLevel(level: number): SessionState {
+export function startLevel(level: number, past: Puzzle[]): SessionState {
   const { name, rows } = LEVELS[level];
-  return { level, puzzle: parsePuzzle(name, rows) };
+  return { level, puzzle: parsePuzzle(name, rows), past: past };
 }
 
 /**
@@ -33,13 +35,34 @@ export function update(state: SessionState, command: Command): SessionState {
   switch (command.kind) {
     case "move": {
       if (isSolved(state.puzzle)) return state;
+
+      //make move
       const puzzle = move(state.puzzle, command.direction);
-      return puzzle === state.puzzle ? state : { ...state, puzzle };
+      const past = state.past;
+      if (
+        (state.puzzle.player.x == puzzle.player.x &&
+          state.puzzle.player.y == puzzle.player.y) == false
+      ) {
+        past.push(state.puzzle);
+      }
+
+      return puzzle === state.puzzle ? state : { ...state, puzzle, past };
     }
     case "restart":
-      return startLevel(state.level);
+      return startLevel(state.level, state.past);
     case "choose-level":
-      return startLevel(command.level);
+      return startLevel(command.level, []);
+    case "undo": {
+      if (state.past.length == 0) {
+        return state;
+      }
+      const newstate: SessionState = {
+        level: state.level,
+        puzzle: state.past[state.past.length - 1],
+        past: state.past.slice(0, -1),
+      };
+      return newstate;
+    }
   }
 }
 
@@ -51,7 +74,7 @@ export class Session {
   readonly #listeners = new Set<() => void>();
 
   constructor(level = 0) {
-    this.#state = startLevel(level);
+    this.#state = startLevel(level, []);
   }
 
   // These two are arrow functions so they can be passed around on their own,
